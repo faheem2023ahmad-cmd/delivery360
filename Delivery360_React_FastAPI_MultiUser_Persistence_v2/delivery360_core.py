@@ -130,6 +130,7 @@ def generate_sample_csvs(directory, overwrite=False):
 import csv, os, sqlite3, tempfile, time, re
 from pathlib import Path
 from typing import Protocol
+from azure_sql import connect as connect_azure_sql
 
 def ident(name): return '"'+name.replace('"','""')+'"'
 
@@ -214,6 +215,53 @@ class SQLiteRepository:
                         v=v[:2000]+' [TRUNCATED]'; clipped.append({'row':i+1,'column':k})
                     d[k]=v
                 output.append(d)
+            return {'rows':output,'rows_truncated':len(fetched)>100,'text_truncated':clipped,'returned_count':len(output)}
+
+
+class AzureSQLRepository:
+    """Azure SQL adapter for the read-only business-data interface."""
+    ALLOWED_FUNCTIONS={'count','sum','avg','min','max','lower','upper','trim','len','coalesce','isnull','nullif','round','abs','substring','charindex','replace','date','datepart','datediff','datename','year','month','day','cast','convert','try_convert'}
+
+    def read(self,entity):
+        if entity not in DATASETS: raise ValueError('Unknown entity')
+        with connect_azure_sql() as db:
+            return [dict(row) for row in db.execute(f'SELECT * FROM dbo.[{entity}]').fetchall()]
+
+    def schema(self):
+        return {table:{column:NUMERIC_FIELDS.get(column,'TEXT') for column in rows[0]} for table,rows in DATASETS.items()}
+
+    def query_readonly(self,sql,parameters):
+        if not isinstance(sql,str) or len(sql)>20000: raise ValueError('Query is too long')
+        if not isinstance(parameters,list) or len(parameters)>100 or any(not isinstance(value,str) for value in parameters): raise ValueError('Use at most 100 string parameters')
+        try:
+            import sqlglot
+            from sqlglot import exp
+            parsed=sqlglot.parse(sql,read='tsql')
+        except Exception as exc:
+            raise ValueError('Invalid read-only T-SQL query') from exc
+        if len(parsed)!=1 or not isinstance(parsed[0],exp.Select): raise ValueError('Only one SELECT or nonrecursive WITH query is allowed')
+        query=parsed[0]
+        if query.args.get('into') is not None: raise ValueError('SELECT INTO is not allowed')
+        cte_names={cte.alias_or_name.lower() for cte in query.find_all(exp.CTE)}
+        for table in query.find_all(exp.Table):
+            if table.db.lower() not in ('', 'dbo') or table.catalog or table.name.lower() not in DATASETS and table.name.lower() not in cte_names:
+                raise ValueError('Queries may only read approved business tables')
+        for function in query.find_all(exp.Func):
+            function_name=function.sql_name().lower()
+            if function_name not in self.ALLOWED_FUNCTIONS:
+                raise ValueError('Query uses a function that is not allowed')
+        with connect_azure_sql() as db:
+            cursor=db.execute(sql,parameters)
+            columns=[item[0] for item in cursor.description or []]
+            if len(columns)!=len(set(columns)): raise ValueError('Use unique aliases')
+            fetched=cursor.fetchmany(101); clipped=[]; output=[]
+            for index,row in enumerate(fetched[:100]):
+                record={}
+                for column,value in zip(columns,row.values()):
+                    if isinstance(value,str) and len(value)>2000:
+                        value=value[:2000]+' [TRUNCATED]'; clipped.append({'row':index+1,'column':column})
+                    record[column]=value
+                output.append(record)
             return {'rows':output,'rows_truncated':len(fetched)>100,'text_truncated':clipped,'returned_count':len(output)}
 
 
@@ -511,7 +559,7 @@ Northstar Retail is A100 and Harbor Insurance is A200. Never silently aggregate 
 Prefer business tools over free SQL for availability, staffing, contractual coverage and exceptions.
 Use resource profile to resolve identity; resolve unknown employee names with parameterized SQL.
 Use SQL over employees for location lists and aggregate questions. Never invent data or business definitions.
-Use ? placeholders for user values and string parameters. Only approved SQLite tables are accessible.
+Use ? placeholders for user values and string parameters. Only approved business tables are accessible.
 All keys are strings. If a tool argument is optional, pass null when not needed. Dates are ISO YYYY-MM-DD.
 For staffing ask for missing skills, period or allocation; total experience and skill experience are different.
 Remaining capacity must cover every weekday in the requested verified period. Tentative assignments are not confirmed.
@@ -570,7 +618,7 @@ class ToolExecutor:
                        type(value) is bool if t is bool else isinstance(value,list) and all(isinstance(v,str) for v in value))
                 if not valid: raise ValueError('Invalid type for '+key)
             data=fn(*bound.args,**bound.kwargs)
-            envelope={'ok':True,'tool':name,'source_system':'SYNTHETIC_POC_SQLITE','snapshot_date':SNAPSHOT_DATE,
+            envelope={'ok':True,'tool':name,'source_system':'SYNTHETIC_POC_AZURE_SQL' if isinstance(self.service.repo,AzureSQLRepository) else 'SYNTHETIC_POC_SQLITE','snapshot_date':SNAPSHOT_DATE,
                       'rule_version':'DEMO-1.0','applied_filters':dict(bound.arguments),'data':data}
             if len(json.dumps(envelope))>100000: raise ValueError('Result exceeds POC payload bound; narrow the date range or filters')
             return envelope
@@ -586,13 +634,17 @@ class Delivery360Agent:
             client=OpenAI(api_key=key,timeout=60,max_retries=2)
         self.client,self.executor,self.trace=client,executor,trace
         self.model=model or os.getenv('OPENAI_MODEL','gpt-4.1-mini')
+        self.system_prompt=SYSTEM_PROMPT
+        if isinstance(executor.service.repo,AzureSQLRepository):
+            self.system_prompt += ('\nBusiness SQL uses Azure SQL T-SQL over dbo tables, not SQLite. '
+                'Use SQL Server syntax and functions (for example SUBSTRING, LEN, DATEPART); do not use SQLite-only functions.')
         self.reset()
     def reset(self): self.history=[]; self.last_trace=[]; self.last_response=None; self.turns=0
     def ask(self,question,context_note=""):
         if not isinstance(question,str) or not question.strip() or len(question)>10000: raise ValueError('Enter a nonempty question <= 10,000 characters')
         history=list(self.history)+[{'role':'user','content':question.strip()}]; self.last_trace=[]
         for i in range(9):
-            response=self.client.responses.create(model=self.model,instructions=SYSTEM_PROMPT+("\n\n"+context_note if context_note else ""),
+            response=self.client.responses.create(model=self.model,instructions=self.system_prompt+("\n\n"+context_note if context_note else ""),
                 input=history,tools=self.executor.specifications,tool_choice='required' if i==0 else 'auto',
                 parallel_tool_calls=False,store=False,max_output_tokens=5000,include=['reasoning.encrypted_content'])
             self.last_response=response

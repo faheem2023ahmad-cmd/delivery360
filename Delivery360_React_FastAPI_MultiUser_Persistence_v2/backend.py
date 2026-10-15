@@ -9,7 +9,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 from delivery360_core import (generate_sample_csvs, create_database_from_csvs, SQLiteRepository,
-    Delivery360Tools, ToolExecutor, Delivery360Agent, SNAPSHOT_DATE)
+    AzureSQLRepository, Delivery360Tools, ToolExecutor, Delivery360Agent, SNAPSHOT_DATE)
+from azure_sql import azure_sql_enabled, connect as connect_azure_sql, ensure_business_schema, ensure_chat_schema
 from context_service import bounded_history, summarize_archived, reference_updates, merge_references, context_note
 
 ROOT=Path(__file__).resolve().parent
@@ -27,6 +28,10 @@ log=logging.getLogger('delivery360')
 def now(): return datetime.now(timezone.utc).isoformat()
 @contextmanager
 def db_connect():
+    if azure_sql_enabled():
+        with connect_azure_sql() as db:
+            yield db
+        return
     db=sqlite3.connect(str(CHAT_DB),timeout=30)
     try:
         db.row_factory=sqlite3.Row
@@ -48,6 +53,11 @@ def check_password(password,stored):
     return hmac.compare_digest(actual,expected)
 
 def init_db():
+    if azure_sql_enabled():
+        if os.getenv('DELIVERY360_AZURE_SQL_INIT_SCHEMA','false').lower()=='true':
+            with db_connect() as db:
+                ensure_chat_schema(db)
+        return
     CHAT_DB.parent.mkdir(parents=True,exist_ok=True)
     with db_connect() as db:
         db.execute('PRAGMA journal_mode=WAL')
@@ -89,11 +99,17 @@ def init_db():
 async def lifespan(app):
     if os.getenv('WEBSITE_SITE_NAME') and os.getenv('DELIVERY360_ALLOW_INSECURE_DEMO_AUTH','false').lower()!='true':
         raise RuntimeError('Demo credentials are disabled on Azure. Configure enterprise authentication before public deployment, or explicitly opt in to insecure POC mode.')
-    DATA.mkdir(parents=True,exist_ok=True)
-    BUSINESS_DB.parent.mkdir(parents=True,exist_ok=True)
-    generate_sample_csvs(DATA)
-    create_database_from_csvs(DATA,BUSINESS_DB)
-    app.state.repo=SQLiteRepository(BUSINESS_DB)
+    if azure_sql_enabled():
+        if os.getenv('DELIVERY360_AZURE_SQL_INIT_SCHEMA','false').lower()=='true':
+            with db_connect() as db:
+                ensure_business_schema(db)
+        app.state.repo=AzureSQLRepository()
+    else:
+        DATA.mkdir(parents=True,exist_ok=True)
+        BUSINESS_DB.parent.mkdir(parents=True,exist_ok=True)
+        generate_sample_csvs(DATA)
+        create_database_from_csvs(DATA,BUSINESS_DB)
+        app.state.repo=SQLiteRepository(BUSINESS_DB)
     init_db()
     yield
 
@@ -183,7 +199,7 @@ def create_conversation(payload:NewConversation,owner=Depends(auth_session)):
 def conversation(cid:str,owner=Depends(auth_session)):
     c=get_conversation(cid,owner)
     with db_connect() as db:
-        rows=db.execute('SELECT id,role,content,created_at FROM messages WHERE conversation_id=? ORDER BY created_at,rowid',(cid,)).fetchall()
+        rows=db.execute('SELECT id,role,content,created_at FROM messages WHERE conversation_id=? ORDER BY created_at,id',(cid,)).fetchall()
     return {'id':c['id'],'title':c['title'],'workspace':c['workspace'],'messages':[dict(r) for r in rows]}
 
 @app.patch('/api/conversations/{cid}')
