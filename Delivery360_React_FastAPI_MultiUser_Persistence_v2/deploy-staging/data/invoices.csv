@@ -1,0 +1,7 @@
+invoice_line_id,timesheet_id,billed_hours,invoice_status
+I01,T01,165,ISSUED
+I02,T02,85,ISSUED
+I03,T03,160,ISSUED
+I04,T04,80,ISSUED
+I05,T05,180,ISSUED
+I06,T06,100,ISSUED

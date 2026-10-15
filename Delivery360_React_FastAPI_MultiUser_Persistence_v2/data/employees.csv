@@ -1,0 +1,13 @@
+employee_id,name,location,total_experience_years,employment_status
+E001,Alex Sample,Lahore,9,ACTIVE
+E002,Jamie Sample,Karachi,7,ACTIVE
+E003,Taylor Sample,Lahore,11,ACTIVE
+E004,Riley Sample,Islamabad,8,ACTIVE
+E005,Jordan Sample,New Jersey,12,ACTIVE
+E006,Cameron Sample,Lahore,6,ACTIVE
+E007,Avery Sample,Karachi,10,ACTIVE
+E008,Quinn Sample,Lahore,8,ACTIVE
+E009,Skyler Sample,New Jersey,9,ACTIVE
+E010,Reese Sample,Islamabad,5,ACTIVE
+E011,Dakota Sample,Lahore,7,ACTIVE
+E012,Emerson Sample,Karachi,4,INACTIVE

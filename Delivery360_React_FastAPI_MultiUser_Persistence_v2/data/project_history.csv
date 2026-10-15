@@ -1,0 +1,4 @@
+history_id,employee_id,project_name,domain,role,start_date,end_date
+H01,E003,Demo Retail Lakehouse,Retail,Data Engineer,2024-01-01,2026-09-30
+H02,E007,Demo Claims Migration,Insurance,Data Engineer,2025-01-01,2026-08-31
+H03,E011,Demo Customer 360,Retail,Data Engineer,2025-04-01,2026-09-30

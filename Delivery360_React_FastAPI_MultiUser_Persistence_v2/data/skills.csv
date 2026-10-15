@@ -1,0 +1,26 @@
+skill_record_id,employee_id,skill,years_experience
+SK001,E001,Databricks,5
+SK002,E001,PySpark,6
+SK003,E001,AWS,4
+SK004,E002,Power BI,5
+SK005,E002,SQL,6
+SK006,E003,Databricks,7
+SK007,E003,PySpark,7
+SK008,E003,AWS,6
+SK009,E004,Java,6
+SK010,E004,AWS,3
+SK011,E005,Azure,8
+SK012,E005,Architecture,8
+SK013,E006,Databricks,3
+SK014,E006,PySpark,4
+SK015,E007,Databricks,5
+SK016,E007,PySpark,5
+SK017,E008,Databricks,4
+SK018,E008,PySpark,5
+SK019,E009,Power BI,6
+SK020,E009,SQL,7
+SK021,E010,Testing,3
+SK022,E011,Databricks,4
+SK023,E011,PySpark,4
+SK024,E011,AWS,3
+SK025,E012,SQL,2

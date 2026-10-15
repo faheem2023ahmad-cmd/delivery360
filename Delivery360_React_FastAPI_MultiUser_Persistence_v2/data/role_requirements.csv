@@ -1,0 +1,8 @@
+requirement_id,project_id,role,required_fte,start_date,end_date
+R01,P100,Data Engineer,2,2026-07-01,2026-12-31
+R02,P100,BI Developer,1,2026-07-01,2026-12-31
+R03,P110,Backend Developer,1,2026-07-01,2026-12-31
+R04,P110,Architect,0.5,2026-07-01,2026-12-31
+R05,P110,QA Engineer,1,2026-10-12,2026-12-31
+R06,P200,Data Engineer,2,2026-07-01,2026-12-31
+R07,P200,BI Developer,1,2026-07-01,2026-12-31

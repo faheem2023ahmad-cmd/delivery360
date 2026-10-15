@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+state/
+*.db
+*.db-shm
+*.db-wal
+frontend/node_modules/
+frontend/dist/

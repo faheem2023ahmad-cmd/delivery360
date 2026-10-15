@@ -1,0 +1,5 @@
+action_id,account_id,employee_id,sow_id,description,owner_id,due_date,status
+AC01,A100,E001,S100,Decide SOW extension before assignment end,E005,2026-10-06,OPEN
+AC02,A200,E006,S200,Confirm named resource amendment,E009,2026-10-12,OPEN
+AC03,A100,E010,S110,Follow up on client access,E005,2026-10-06,IN_PROGRESS
+AC04,A200,,S200,Review SOW renewal,E009,2026-10-05,COMPLETE

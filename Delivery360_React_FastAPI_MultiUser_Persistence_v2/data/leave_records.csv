@@ -1,0 +1,4 @@
+leave_id,employee_id,start_date,end_date,unavailable_pct,status
+L01,E003,2026-11-02,2026-11-06,100,APPROVED
+L02,E011,2026-11-16,2026-11-20,50,APPROVED
+L03,E008,2026-11-09,2026-11-10,100,REQUESTED

@@ -1,0 +1,4 @@
+assessment_id,employee_id,assessment_date,engagement_flag,progression_flag,comment,next_action
+V01,E001,2026-10-01,CONCERN,ACCEPTABLE,Manager recorded a need for engagement follow-up.,Arrange manager check-in
+V02,E006,2026-10-01,NORMAL,CONCERN,Manager recorded delivery progression concerns.,Review support needs
+V03,E004,2026-10-01,NORMAL,ACCEPTABLE,No recorded concern in this assessment.,Regular check-in

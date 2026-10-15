@@ -1,0 +1,6 @@
+document_id,account_id,project_id,title,document_type,effective_date,source_uri,content
+D01,A100,P100,Commerce SOW terms,SOW,2026-07-01,poc://documents/D01,S100 covers Commerce Analytics through 2026-10-31. Extension requires commercial approval. Alex Sample is a named resource. Monthly approved-hour cap is 320.
+D02,A100,P110,Retail onboarding checklist,ONBOARDING,2026-09-01,poc://documents/D02,"Before starting client work, complete client access approval, laptop provision and compliance training. Morgan Demo coordinates client security approval."
+D03,A200,P200,Claims delivery handover,HANDOVER,2026-10-01,poc://documents/D03,"Claims Data Platform uses Databricks and PySpark. Handover must include pipeline runbooks, data quality exceptions, access owners and recovery procedures."
+D04,A200,P200,Insurance SOW renewal notes,ACCOUNT_NOTE,2026-10-02,poc://documents/D04,S200 expires on 2026-10-20. S201 is draft and does not provide signed coverage. The delivery owner must coordinate extension approval.
+D05,A100,P100,Retail account briefing,ACCOUNT_NOTE,2026-10-01,poc://documents/D05,Northstar Retail operates an offshore and onshore model. Critical resource transitions require a documented handover and client communication plan.
