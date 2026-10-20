@@ -98,9 +98,11 @@ Setting	Value
 OPENAI_API_KEY	Your OpenAI API key
 PORT	8000
 SCM_DO_BUILD_DURING_DEPLOYMENT	true
-DELIVERY360_STATE_DIR	/home/delivery360-state
+DELIVERY360_AZURE_SQL_CONNECTION_STRING	Encrypted Azure SQL connection string for database delivery360
 DELIVERY360_COOKIE_SECURE	true
-Your code explicitly supports the last two settings.
+Store the connection string as a secret App Service setting. Prefer the App Service managed identity after enabling the identity and creating its database user. For this app's runtime, grant that user `db_datareader` and `db_datawriter`; leave `DELIVERY360_AZURE_SQL_INIT_SCHEMA` unset/false because the schema is already created. For first-time schema provisioning only, enable that setting temporarily with a principal allowed to create and alter `dbo` tables. A system-assigned identity connection string is `Server=tcp:delivery360server.database.windows.net,1433;Database=delivery360;Authentication=ActiveDirectoryMSI;Encrypt=yes;TrustServerCertificate=no;`. The Python Azure SQL driver is included in `requirements.txt` and does not need a separately installed ODBC driver.
+
+To migrate or verify both local databases, run `migrate_sqlite_to_azure.py` from the project root with `DELIVERY360_AZURE_SQL_CONNECTION_STRING` set to the target database connection string. The migration inserts only when all destination tables are empty; if the migration has already run, it verifies exact row equality and reports the counts without duplicating data. It stops on partial or mismatched destination contents.
 For authentication, there is an additional decision:
 Recommended: Configure enterprise authentication before exposing the application to other users.
 Temporary POC alternative: If you need to validate the existing local demo login on Azure, first restrict App Service network access to your approved IP address, then enable DELIVERY360_ALLOW_INSECURE_DEMO_AUTH=true for testing. Do not use this configuration for a public deployment.
