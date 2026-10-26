@@ -218,6 +218,30 @@ class SQLiteRepository:
             return {'rows':output,'rows_truncated':len(fetched)>100,'text_truncated':clipped,'returned_count':len(output)}
 
 
+class PhaseTwoDataError(ValueError):
+    def __init__(self, tables):
+        self.tables=sorted(tables)
+        super().__init__('This is not part of the current phase. It will be done in phase 2. Deferred datasets: '+', '.join(self.tables)+'.')
+
+
+DEFERRED_FEATURES = {
+    'leave_records':'Leave records, leave-adjusted capacity, availability, and staffing candidates',
+    'onboarding_steps':'Onboarding status, readiness, steps, and blockers',
+    'role_requirements':'Required staffing and assignment coverage gaps',
+    'sow_named_resources':'SOW named resources and named-resource compliance',
+}
+TOOL_DATA_DEPENDENCIES = {
+    'get_assignment_coverage':{'role_requirements','leave_records'},
+    'get_resource_availability':{'leave_records'},
+    'find_staffing_candidates':{'leave_records'},
+    'check_assignment_sow_coverage':{'sow_named_resources'},
+    'get_onboarding_status':{'onboarding_steps'},
+    'initiate_onboarding':{'onboarding_steps'},
+    'get_delivery_exceptions':set(DEFERRED_FEATURES),
+    'get_resource_data_quality':set(DEFERRED_FEATURES),
+}
+
+
 class AzureSQLRepository:
     """Azure SQL adapter for the read-only business-data interface."""
     ALLOWED_FUNCTIONS={'count','sum','avg','min','max','lower','upper','trim','len','coalesce','isnull','nullif','round','abs','substring','charindex','replace','date','datepart','datediff','datename','year','month','day','cast','convert','try_convert'}
@@ -230,7 +254,7 @@ class AzureSQLRepository:
     def read(self,entity):
         if entity not in DATASETS: raise ValueError('Unknown entity')
         if entity in self.disabled_tables:
-            raise ValueError(f'{entity} data is unavailable in this demo and is deferred to phase 2. Do not infer results from missing data.')
+            raise PhaseTwoDataError({entity})
         with connect_azure_sql() as db:
             return [dict(row) for row in db.execute(f'SELECT * FROM dbo.[{entity}]').fetchall()]
 
@@ -252,7 +276,7 @@ class AzureSQLRepository:
         cte_names={cte.alias_or_name.lower() for cte in query.find_all(exp.CTE)}
         for table in query.find_all(exp.Table):
             if table.name.lower() in self.disabled_tables:
-                raise ValueError(f'{table.name} data is unavailable in this demo and is deferred to phase 2.')
+                raise PhaseTwoDataError({table.name.lower()})
             if table.db.lower() not in ('', 'dbo') or table.catalog or table.name.lower() not in DATASETS and table.name.lower() not in cte_names:
                 raise ValueError('Queries may only read approved business tables')
         for function in query.find_all(exp.Func):
@@ -309,7 +333,10 @@ class Delivery360Tools:
         """Discover all POC tables, keys, demo accounts, snapshot date and rules."""
         available=self.repo.schema()
         return {'tables':available,'foreign_keys':{table:keys for table,keys in FOREIGN_KEYS.items() if table in available},
-                'unavailable_tables':sorted(getattr(self.repo,'disabled_tables',set())), 'accounts':self.data('accounts'),
+                'unavailable_tables':sorted(getattr(self.repo,'disabled_tables',set())),
+                'phase_2_features':{table:DEFERRED_FEATURES.get(table,table) for table in sorted(getattr(self.repo,'disabled_tables',set()))},
+                'phase_2_message':'This is not part of the current phase. It will be done in phase 2.',
+                'accounts':self.data('accounts'),
                 'snapshot_date':SNAPSHOT_DATE,'capacity_verified_through':CAPACITY_VERIFIED_THROUGH,
                 'rules':{'critical':'Confirmed assignment is_critical=1 on as_of_date.',
                          'review_attention':'Latest assessment on/before as_of_date within 90 days has a CONCERN flag AND employee is critical on that account. Management follow-up only, not a predicted attrition risk.',
@@ -566,10 +593,19 @@ READ_ONLY_TOOLS = [
 ACTION_TOOLS = ['create_follow_up_task','request_sow_extension','initiate_onboarding']
 TOOL_NAMES = READ_ONLY_TOOLS + ACTION_TOOLS  # Complete catalog; not the default exposed set.
 
-SYSTEM_PROMPT = f'''You are the Delivery 360 POC assistant. All data is synthetic, with snapshot date {SNAPSHOT_DATE}.
-Use tools for all business facts including follow-ups. Discover schema, demo account IDs, and rules before first use.
-If no date is provided, use the snapshot date and state it. If an account is ambiguous, ask the user;
-Northstar Retail is A100 and Harbor Insurance is A200. Never silently aggregate accounts.
+SYSTEM_PROMPT = '''You are the Delivery 360 assistant.
+Use tools for all business facts including follow-ups. Refresh schema, current account names and IDs,
+data dates, available datasets, and rules with get_employee_schema at the start of every request.
+Never hard-code account mappings, names, record counts, dates, or other database values.
+Resolve account names and IDs from current database results; ask if the match is ambiguous.
+Current database records override account names or mappings in prior messages, summaries, and documents.
+Historical names are not aliases unless current database evidence explicitly establishes that relationship.
+If no date is provided, use the snapshot date returned by tools and state it. Never silently aggregate accounts.
+For any question requiring a dataset listed as unavailable, say:
+"This is not part of the current phase. It will be done in phase 2."
+This applies to its related business functionality even when an old document or prior conversation mentions it.
+Do not query a deferred dataset, fabricate its contents, or treat missing data as zero.
+For a mixed request, answer independent supported parts and clearly mark deferred parts with that phase-2 message.
 Prefer business tools over free SQL for availability, staffing, contractual coverage and exceptions.
 Use resource profile to resolve identity; resolve unknown employee names with parameterized SQL.
 Use SQL over employees for location lists and aggregate questions. Never invent data or business definitions.
@@ -577,7 +613,7 @@ Use ? placeholders for user values and string parameters. Only approved business
 All keys are strings. If a tool argument is optional, pass null when not needed. Dates are ISO YYYY-MM-DD.
 For staffing ask for missing skills, period or allocation; total experience and skill experience are different.
 Remaining capacity must cover every weekday in the requested verified period. Tentative assignments are not confirmed.
-Use the approved DEMO-1.0 rule for management follow-up concerns; never present this as attrition probability,
+Use the business rules returned by tools for management follow-up concerns; never present this as attrition probability,
 performance scoring or a disciplinary recommendation. Criticality alone is not risk.
 A missing checklist or invoice is unknown, not ready/zero. Draft SOWs do not provide signed coverage.
 Cite returned record IDs or document IDs/source URIs when giving facts or explaining observations.
@@ -666,6 +702,8 @@ class ToolExecutor:
             if name not in self.registry or not isinstance(args,dict): raise ValueError('Unknown tool or invalid arguments')
             fn=self.registry[name]; signature=inspect.signature(fn)
             bound=signature.bind(**args); bound.apply_defaults()
+            deferred=TOOL_DATA_DEPENDENCIES.get(name,set()) & getattr(self.service.repo,'disabled_tables',set())
+            if deferred: raise PhaseTwoDataError(deferred)
             for key,value in bound.arguments.items():
                 p=signature.parameters[key]
                 if value is None and p.default is None: continue
@@ -679,6 +717,8 @@ class ToolExecutor:
                       'rule_version':'DEMO-1.0','applied_filters':dict(bound.arguments),'data':data}
             if len(json.dumps(envelope))>100000: raise ValueError('Result exceeds POC payload bound; narrow the date range or filters')
             return envelope
+        except PhaseTwoDataError as exc:
+            return {'ok':False,'tool':name,'error':str(exc),'code':'NOT_IN_CURRENT_PHASE','phase':2,'datasets':exc.tables,'data':None}
         except Exception as exc:
             return {'ok':False,'tool':name,'error':str(exc),'data':None}
 
@@ -698,7 +738,8 @@ class Delivery360Agent:
             if executor.service.repo.disabled_tables:
                 self.system_prompt += ('\nThese datasets are unavailable and deferred to phase 2: '
                     + ', '.join(sorted(executor.service.repo.disabled_tables))
-                    + '. Do not query them or claim results that depend on them. Explain the missing data when a request requires it; use available data for independent parts of the request.')
+                    + '. For related requests say: "This is not part of the current phase. It will be done in phase 2." '
+                    + 'Do not query them or claim results that depend on them. Use available data for independent parts of the request.')
         self.reset()
     def reset(self): self.history=[]; self.last_trace=[]; self.last_response=None; self.turns=0
     def ask(self,question,context_note=""):
@@ -706,7 +747,8 @@ class Delivery360Agent:
         history=list(self.history)+[{'role':'user','content':question.strip()}]; self.last_trace=[]
         for i in range(9):
             response=self.client.responses.create(model=self.model,instructions=self.system_prompt+("\n\n"+context_note if context_note else ""),
-                input=history,tools=self.executor.specifications,tool_choice='required' if i==0 else 'auto',
+                input=history,tools=self.executor.specifications,
+                tool_choice={'type':'function','name':'get_employee_schema'} if i==0 and 'get_employee_schema' in self.executor.registry else ('required' if i==0 else 'auto'),
                 parallel_tool_calls=False,store=False,max_output_tokens=5000,include=['reasoning.encrypted_content'])
             self.last_response=response
             if response.status!='completed': raise RuntimeError('Incomplete API response: '+str(response.status))

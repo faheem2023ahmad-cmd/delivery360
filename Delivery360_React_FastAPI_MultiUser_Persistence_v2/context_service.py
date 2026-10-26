@@ -66,7 +66,8 @@ def summarize_archived(previous, dropped, client=None, model=None):
                 instructions=('Summarize conversation context for future follow-up questions. Preserve explicit user constraints, '
                               'named clients, employee/project/SOW identifiers, decisions and unresolved questions. '
                               'Distinguish user requirements from historical observations. Do not invent facts. '
-                              'Business availability and status must be refreshed through tools. Max 900 words.'),
+                              'Account names and ID mappings, dataset availability, business availability and status must be refreshed through tools. '
+                              'Preserved historical names are not authoritative current account mappings. Max 900 words.'),
                 input=source,max_output_tokens=1300)
             if response.status=='completed' and response.output_text.strip(): return response.output_text.strip()[:6000]
         except Exception:
@@ -80,4 +81,5 @@ def context_note(summary,references):
     return ('Prior conversation context (historical, not authoritative operational facts):\n'
             + (summary or '(none)') + '\nBusiness IDs observed in successful tool results: '
             + json.dumps(references or {},ensure_ascii=False)
-            + '\nAlways re-query tools for current availability, SOW status, dates, and other mutable facts.')
+            + '\nAlways re-query tools for current account names and ID mappings, dataset availability, SOW status, dates, and other mutable facts. '
+            + 'Current database results override historical names; deferred datasets are not part of the current phase and will be done in phase 2.')

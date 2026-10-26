@@ -2,6 +2,12 @@
 
 ## Current demo settings (2026-10-26)
 
+Account discovery now runs at the start of each model request. Prompts do not
+contain fixed account names, mappings, or snapshot dates; current SQL records
+override historical context. Phase-2 dataset failures explicitly return
+`NOT_IN_CURRENT_PHASE` and the user message "This is not part of the current
+phase. It will be done in phase 2." Tables and their existing records remain intact.
+
 The owner requested public demo access. Application default access is set
 to Allow and the `Delivery360-POC-client` IP allow rule was removed. Existing login
 and HTTPS remain enabled. This supersedes the earlier IP-restricted POC notes.

@@ -86,6 +86,40 @@ class DeferredDatasetTests(unittest.TestCase):
             result=core.ToolExecutor(core.Delivery360Tools(repo)).execute('query_employee_database',{'sql':'SELECT * FROM dbo.leave_records','parameters':[]})
             self.assertFalse(result['ok'])
             self.assertIn('phase 2',result['error'])
+            self.assertEqual(result['code'],'NOT_IN_CURRENT_PHASE')
+            result=core.ToolExecutor(core.Delivery360Tools(repo)).execute('get_onboarding_status',{'employee_id':'any-employee','assignment_id':'any-assignment'})
+            self.assertEqual(result['phase'],2)
+            self.assertIn('not part of the current phase',result['error'])
             connect.assert_not_called()
+
+class CurrentAccountTests(unittest.TestCase):
+    def test_each_request_discovers_renamed_accounts_even_with_history(self):
+        import json
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        import delivery360_core as core
+        with patch.dict(os.environ,{'DELIVERY360_DISABLED_TABLES':''}):
+            repo=core.AzureSQLRepository()
+        account={'account_id':'client-key','name':'Previous client name'}
+        repo.read=Mock(side_effect=lambda entity:[dict(account)])
+        executor=core.ToolExecutor(core.Delivery360Tools(repo))
+        def call_response(call_id):
+            payload={'type':'function_call','name':'get_employee_schema','arguments':'{}','call_id':call_id}
+            call=SimpleNamespace(**payload,model_dump=lambda **kwargs:dict(payload))
+            return SimpleNamespace(status='completed',output=[call])
+        client=Mock()
+        client.responses.create.side_effect=[call_response('first'),SimpleNamespace(status='completed',output=[],output_text='First answer'),
+                                             call_response('second'),SimpleNamespace(status='completed',output=[],output_text='Second answer')]
+        agent=core.Delivery360Agent(executor,client=client,trace=False)
+        agent.ask('Show the account')
+        account['name']='Renamed client'
+        agent.ask('Show the account again')
+        outputs=[json.loads(item['output']) for item in agent.history if item.get('type')=='function_call_output']
+        self.assertEqual([out['data']['accounts'][0]['name'] for out in outputs],['Previous client name','Renamed client'])
+        requests=client.responses.create.call_args_list
+        for index in (0,2):
+            self.assertEqual(requests[index].kwargs['tool_choice'],{'type':'function','name':'get_employee_schema'})
+        for hardcoded in ('Northstar','Harbor','RGA Insurance','A100','A200',core.SNAPSHOT_DATE):
+            self.assertNotIn(hardcoded,agent.system_prompt)
 
 if __name__=='__main__': unittest.main()

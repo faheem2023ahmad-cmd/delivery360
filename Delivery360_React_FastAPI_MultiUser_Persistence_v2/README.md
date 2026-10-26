@@ -6,6 +6,16 @@ App Service settings. Rebuild with `npm run build` in `frontend`, then
 `./package-azure.ps1` from this directory. Azure startup requires the SQL
 connection setting and cannot silently fall back to SQLite.
 
+Account names and ID mappings are discovered from the database at the start of
+each question, including questions in existing chats. The system prompt contains
+no fixed account names, IDs, or snapshot date. Current database mappings override
+historical conversation names and document references.
+
+Datasets listed in `DELIVERY360_DISABLED_TABLES` are outside the current phase.
+Related requests receive: "This is not part of the current phase. It will be done
+in phase 2." Dependent tools return `NOT_IN_CURRENT_PHASE` without querying SQL;
+independent supported portions of a mixed request can still be answered.
+
 Built from the previous React + FastAPI package. Preserves all 20 existing business tools and the OpenAI Responses API agent. Adds user-scoped conversation storage, agent context compaction, login, logout, and persistent sessions.
 
 ## Login (LOCAL DEMO ONLY)
