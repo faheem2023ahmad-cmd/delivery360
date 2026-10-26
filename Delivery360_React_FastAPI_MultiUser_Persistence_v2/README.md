@@ -1,5 +1,11 @@
 # Delivery 360 — React + FastAPI, multi-user persistence POC
 
+Ready-to-deploy Azure SQL artifact: `delivery360-azure-sql.zip`. See the first
+section of `Deployment.md` for `deliver360` deployment commands and required
+App Service settings. Rebuild with `npm run build` in `frontend`, then
+`./package-azure.ps1` from this directory. Azure startup requires the SQL
+connection setting and cannot silently fall back to SQLite.
+
 Built from the previous React + FastAPI package. Preserves all 20 existing business tools and the OpenAI Responses API agent. Adds user-scoped conversation storage, agent context compaction, login, logout, and persistent sessions.
 
 ## Login (LOCAL DEMO ONLY)

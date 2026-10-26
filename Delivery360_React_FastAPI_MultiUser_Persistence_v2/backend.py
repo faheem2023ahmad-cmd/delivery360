@@ -97,6 +97,8 @@ def init_db():
 
 @asynccontextmanager
 async def lifespan(app):
+    if os.getenv('WEBSITE_SITE_NAME') and not azure_sql_enabled():
+        raise RuntimeError('Azure deployment requires DELIVERY360_AZURE_SQL_CONNECTION_STRING. Configure the App Service setting; SQLite fallback is only available locally.')
     if os.getenv('WEBSITE_SITE_NAME') and os.getenv('DELIVERY360_ALLOW_INSECURE_DEMO_AUTH','false').lower()!='true':
         raise RuntimeError('Demo credentials are disabled on Azure. Configure enterprise authentication before public deployment, or explicitly opt in to insecure POC mode.')
     if azure_sql_enabled():

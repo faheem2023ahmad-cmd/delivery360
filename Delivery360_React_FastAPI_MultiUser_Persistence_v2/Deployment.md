@@ -1,3 +1,93 @@
+# Azure SQL deployment package
+
+## Current demo settings (2026-10-26)
+
+The owner requested public demo access. Application default access is set
+to Allow and the `Delivery360-POC-client` IP allow rule was removed. Existing login
+and HTTPS remain enabled. This supersedes the earlier IP-restricted POC notes.
+
+Set `DELIVERY360_DISABLED_TABLES` to
+`leave_records,onboarding_steps,role_requirements,sow_named_resources`.
+These four datasets are deferred to phase 2: the Azure repository excludes them
+from schema discovery and blocks reads and SQL queries. Dependent tools report
+unavailable data instead of calculating results from empty placeholders. The
+agent is instructed to explain these limitations. Original TBD tables and the
+previously added views remain intact but are not queried by this configuration.
+Remove names from this setting when their real data becomes available.
+
+## Confirmed Azure resources (2026-10-25)
+
+- Subscription: `65ed97e8-ca33-479b-b4f9-fe5536a7149f`
+- Resource group: `Practice`
+- Actual existing App Service: `delivery360` (not `deliver360`)
+- Host: `https://delivery360-fchvgsg0gyafgbg9.westus3-01.azurewebsites.net`
+- Existing database selected by the owner: `delivery360_test`
+- Managed identity enabled; database reader/writer roles granted.
+- Existing data preserved: 2 users, 8 conversations, 48 messages at inspection.
+- Compatibility views map `leave_records`, `onboarding_steps`,
+  `role_requirements`, and `sow_named_resources` to their existing TBD tables.
+  `configure_existing_azure_sql.py` records the idempotent setup used.
+- SQL firewall rules added for all 13 current App Service outbound IPs.
+- On 2026-10-26, application access restricted to `172.190.100.99/32`
+  with default deny. Deployment endpoint rules remain separate.
+- Azure SQL connection configured for `delivery360_test` using managed identity;
+  schema initialization disabled, secure cookies and HTTPS enabled.
+- Startup set to `sh startup.sh`; server-side Python build enabled.
+- Existing OpenAI API key retained; demo authentication enabled for the restricted POC.
+
+Use this connection setting for these confirmed resources:
+
+```text
+Server=tcp:delivery360server.database.windows.net,1433;Database=delivery360_test;Authentication=ActiveDirectoryMSI;Encrypt=yes;TrustServerCertificate=no;
+```
+
+The examples below predate resource discovery. Substitute `delivery360` for
+`deliver360` and `delivery360_test` for the database name in those examples.
+
+## Package and deployment procedure
+
+The prepared package is `delivery360-azure-sql.zip`. It includes `azure_sql.py`,
+`startup.sh`, all runtime Python modules, requirements, CSV data, the migration
+utility, and compiled React assets. It excludes local SQLite files and credentials.
+Azure startup now requires `DELIVERY360_AZURE_SQL_CONNECTION_STRING`; a missing
+setting causes an explicit startup error rather than SQLite fallback.
+
+To rebuild: run `npm run build` in `frontend`, then run `./package-azure.ps1`
+from the project directory.
+
+The request names the App Service `deliver360`; the older instructions below name
+`delivery360`. Use your actual existing App Service name. For `deliver360` in
+resource group `Practice`, run these commands in Azure Cloud Shell (Bash):
+
+```bash
+az webapp config set -g Practice -n deliver360 --startup-file "sh startup.sh"
+az webapp config appsettings set -g Practice -n deliver360 --settings SCM_DO_BUILD_DURING_DEPLOYMENT=true PORT=8000 DELIVERY360_COOKIE_SECURE=true DELIVERY360_AZURE_SQL_INIT_SCHEMA=false
+az webapp deploy -g Practice -n deliver360 --src-path delivery360-azure-sql.zip --type zip --track-status false
+```
+
+Before deploying, set `OPENAI_API_KEY` and the secret
+`DELIVERY360_AZURE_SQL_CONNECTION_STRING` in App Service environment variables.
+For the documented system-assigned managed identity connection:
+
+```text
+Server=tcp:delivery360server.database.windows.net,1433;Database=delivery360;Authentication=ActiveDirectoryMSI;Encrypt=yes;TrustServerCertificate=no;
+```
+
+Enable the App Service identity, grant its database user `db_datareader` and
+`db_datawriter`, and allow network access from App Service to SQL. The destination
+must already contain the schema, business rows, and users. Packaging does not
+migrate data: use `migrate_sqlite_to_azure.py` with access to the original `state/`
+directory to import/verify both databases before switching traffic.
+
+The existing demo-auth guard still applies: for an IP-restricted POC only, explicitly
+set `DELIVERY360_ALLOW_INSECURE_DEMO_AUTH=true`. Enterprise authentication is not
+implemented by this package. A public deployment requires authentication work.
+
+The package has been checked locally; a live Azure SQL connection must be verified
+in your environment using your configured identity and network access.
+
+## Original manual packaging procedure
+
 Step-1  Build The React Front End
 cd frontend
 npm install
@@ -25,6 +115,7 @@ New-Item -ItemType Directory $stage | Out-Null
 # Copy Python application files
 Copy-Item "$root\*.py" $stage
 Copy-Item "$root\requirements.txt" $stage
+Copy-Item "$root\startup.sh" $stage
 
 # Copy source data if available
 if (Test-Path "$root\data") {

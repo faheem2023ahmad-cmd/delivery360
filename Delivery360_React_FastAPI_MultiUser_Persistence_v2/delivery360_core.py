@@ -222,13 +222,20 @@ class AzureSQLRepository:
     """Azure SQL adapter for the read-only business-data interface."""
     ALLOWED_FUNCTIONS={'count','sum','avg','min','max','lower','upper','trim','len','coalesce','isnull','nullif','round','abs','substring','charindex','replace','date','datepart','datediff','datename','year','month','day','cast','convert','try_convert'}
 
+    def __init__(self):
+        self.disabled_tables={name.strip().lower() for name in os.getenv('DELIVERY360_DISABLED_TABLES','').split(',') if name.strip()}
+        if self.disabled_tables-set(DATASETS):
+            raise ValueError('DELIVERY360_DISABLED_TABLES contains unknown business tables')
+
     def read(self,entity):
         if entity not in DATASETS: raise ValueError('Unknown entity')
+        if entity in self.disabled_tables:
+            raise ValueError(f'{entity} data is unavailable in this demo and is deferred to phase 2. Do not infer results from missing data.')
         with connect_azure_sql() as db:
             return [dict(row) for row in db.execute(f'SELECT * FROM dbo.[{entity}]').fetchall()]
 
     def schema(self):
-        return {table:{column:NUMERIC_FIELDS.get(column,'TEXT') for column in rows[0]} for table,rows in DATASETS.items()}
+        return {table:{column:NUMERIC_FIELDS.get(column,'TEXT') for column in rows[0]} for table,rows in DATASETS.items() if table not in self.disabled_tables}
 
     def query_readonly(self,sql,parameters):
         if not isinstance(sql,str) or len(sql)>20000: raise ValueError('Query is too long')
@@ -244,6 +251,8 @@ class AzureSQLRepository:
         if query.args.get('into') is not None: raise ValueError('SELECT INTO is not allowed')
         cte_names={cte.alias_or_name.lower() for cte in query.find_all(exp.CTE)}
         for table in query.find_all(exp.Table):
+            if table.name.lower() in self.disabled_tables:
+                raise ValueError(f'{table.name} data is unavailable in this demo and is deferred to phase 2.')
             if table.db.lower() not in ('', 'dbo') or table.catalog or table.name.lower() not in DATASETS and table.name.lower() not in cte_names:
                 raise ValueError('Queries may only read approved business tables')
         for function in query.find_all(exp.Func):
@@ -298,7 +307,9 @@ class Delivery360Tools:
 
     def get_employee_schema(self):
         """Discover all POC tables, keys, demo accounts, snapshot date and rules."""
-        return {'tables':self.repo.schema(),'foreign_keys':FOREIGN_KEYS,'accounts':self.data('accounts'),
+        available=self.repo.schema()
+        return {'tables':available,'foreign_keys':{table:keys for table,keys in FOREIGN_KEYS.items() if table in available},
+                'unavailable_tables':sorted(getattr(self.repo,'disabled_tables',set())), 'accounts':self.data('accounts'),
                 'snapshot_date':SNAPSHOT_DATE,'capacity_verified_through':CAPACITY_VERIFIED_THROUGH,
                 'rules':{'critical':'Confirmed assignment is_critical=1 on as_of_date.',
                          'review_attention':'Latest assessment on/before as_of_date within 90 days has a CONCERN flag AND employee is critical on that account. Management follow-up only, not a predicted attrition risk.',
@@ -684,6 +695,10 @@ class Delivery360Agent:
         if isinstance(executor.service.repo,AzureSQLRepository):
             self.system_prompt += ('\nBusiness SQL uses Azure SQL T-SQL over dbo tables, not SQLite. '
                 'Use SQL Server syntax and functions (for example SUBSTRING, LEN, DATEPART); do not use SQLite-only functions.')
+            if executor.service.repo.disabled_tables:
+                self.system_prompt += ('\nThese datasets are unavailable and deferred to phase 2: '
+                    + ', '.join(sorted(executor.service.repo.disabled_tables))
+                    + '. Do not query them or claim results that depend on them. Explain the missing data when a request requires it; use available data for independent parts of the request.')
         self.reset()
     def reset(self): self.history=[]; self.last_trace=[]; self.last_response=None; self.turns=0
     def ask(self,question,context_note=""):

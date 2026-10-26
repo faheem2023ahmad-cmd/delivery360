@@ -56,4 +56,36 @@ class PersistenceTests(unittest.TestCase):
         self.login('manager1')
         self.assertEqual(self.client.post('/api/conversations',json={'workspace':'assistant'}).status_code,403)
 
+class AzureStartupTests(unittest.TestCase):
+    def test_azure_without_sql_cannot_fall_back_to_sqlite(self):
+        import asyncio, backend
+        async def start():
+            async with backend.lifespan(backend.app):
+                self.fail('Azure startup must require SQL')
+        with patch.dict(os.environ, {
+            'WEBSITE_SITE_NAME':'deliver360',
+            'DELIVERY360_AZURE_SQL_CONNECTION_STRING':'',
+            'DELIVERY360_ALLOW_INSECURE_DEMO_AUTH':'true',
+        }), patch.object(backend, 'create_database_from_csvs') as create_sqlite:
+            with self.assertRaisesRegex(RuntimeError, 'requires DELIVERY360_AZURE_SQL_CONNECTION_STRING'):
+                asyncio.run(start())
+            create_sqlite.assert_not_called()
+
+class DeferredDatasetTests(unittest.TestCase):
+    def test_deferred_tables_are_not_queried_or_advertised(self):
+        import delivery360_core as core
+        with patch.dict(os.environ, {'DELIVERY360_DISABLED_TABLES':'leave_records,onboarding_steps,role_requirements,sow_named_resources'}):
+            repo=core.AzureSQLRepository()
+        self.assertIn('employees',repo.schema())
+        self.assertNotIn('leave_records',repo.schema())
+        with patch.object(core,'connect_azure_sql') as connect:
+            with self.assertRaisesRegex(ValueError,'phase 2'):
+                repo.read('leave_records')
+            with self.assertRaisesRegex(ValueError,'phase 2'):
+                repo.query_readonly('SELECT * FROM dbo.role_requirements',[])
+            result=core.ToolExecutor(core.Delivery360Tools(repo)).execute('query_employee_database',{'sql':'SELECT * FROM dbo.leave_records','parameters':[]})
+            self.assertFalse(result['ok'])
+            self.assertIn('phase 2',result['error'])
+            connect.assert_not_called()
+
 if __name__=='__main__': unittest.main()
